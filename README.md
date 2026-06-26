@@ -58,6 +58,12 @@ Add the module to your `config/config.js` file:
 | `showDownloads` | Boolean | `true` | No | Show the downloads total + chart |
 | `showIapRevenue` | Boolean | `true` | No | Include IAP revenue in totals + revenue chart |
 | `showAdRevenue` | Boolean | `true` | No | Include ad revenue in totals + revenue chart |
+| `downloadsChartLabel` | String | `"Downloads"` | No | Downloads label in the chart legend |
+| `iapChartLabel` | String | `"IAP"` | No | IAP revenue label in the chart legend |
+| `adChartLabel` | String | `"Ad"` | No | Ad revenue label in the chart legend |
+| `downloadsSummaryLabel` | String | `"Downloads"` | No | Downloads label on the summary card |
+| `iapSummaryLabel` | String | `"IAP Revenue"` | No | IAP revenue label on the summary card |
+| `adSummaryLabel` | String | `"Ad Revenue"` | No | Ad revenue label on the summary card |
 | `chartHeight` | Number | `150` | No | Pixel height of each chart |
 | `width` | String | `"420px"` | No | Module width |
 | `title` | String | `"App Metrics"` | No | Heading text (set `""` to hide) |

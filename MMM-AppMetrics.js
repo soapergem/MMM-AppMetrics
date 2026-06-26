@@ -9,6 +9,14 @@ Module.register("MMM-AppMetrics", {
         showDownloads: true,
         showIapRevenue: true,
         showAdRevenue: true,
+        // Chart legend labels (kept short to fit the chart)
+        downloadsChartLabel: "Downloads",
+        iapChartLabel: "IAP",
+        adChartLabel: "Ad",
+        // Summary-card labels (can be more descriptive)
+        downloadsSummaryLabel: "Downloads",
+        iapSummaryLabel: "IAP Revenue",
+        adSummaryLabel: "Ad Revenue",
         chartHeight: 150,         // pixel height of each chart
         width: "420px",
         title: "App Metrics"
@@ -197,21 +205,21 @@ Module.register("MMM-AppMetrics", {
         var items = [];
         if (this.config.showDownloads && data.downloads) {
             items.push({
-                label: "Downloads",
+                label: this.config.downloadsSummaryLabel,
                 value: this.downloadsTotal(data.downloads).toLocaleString("en-US"),
                 cls: "metric-downloads"
             });
         }
         if (this.config.showIapRevenue && data.iapRevenue) {
             items.push({
-                label: "IAP Revenue",
+                label: this.config.iapSummaryLabel,
                 value: this.formatMoney(this.revenueTotal(data.iapRevenue), this.revenueCurrency(data.iapRevenue)),
                 cls: "metric-iap"
             });
         }
         if (this.config.showAdRevenue && data.adRevenue) {
             items.push({
-                label: "Ad Revenue",
+                label: this.config.adSummaryLabel,
                 value: this.formatMoney(this.revenueTotal(data.adRevenue), this.revenueCurrency(data.adRevenue)),
                 cls: "metric-ad"
             });
@@ -323,7 +331,7 @@ Module.register("MMM-AppMetrics", {
             data: {
                 labels: this.shortLabels(labels),
                 datasets: [{
-                    label: "Downloads",
+                    label: this.config.downloadsChartLabel,
                     data: this.seriesFor(labels, byDate),
                     borderColor: this.palette.downloads,
                     backgroundColor: this.palette.downloads,
@@ -344,12 +352,12 @@ Module.register("MMM-AppMetrics", {
         if (this.config.showIapRevenue && data.iapRevenue) {
             var iap = this.mergeDaily(data.iapRevenue, function(e) { return parseFloat(e.revenue); });
             maps.push(iap);
-            datasets.push({ _map: iap, label: "IAP", color: this.palette.iap });
+            datasets.push({ _map: iap, label: this.config.iapChartLabel, color: this.palette.iap });
         }
         if (this.config.showAdRevenue && data.adRevenue) {
             var ad = this.mergeDaily(data.adRevenue, function(e) { return parseFloat(e.revenue); });
             maps.push(ad);
-            datasets.push({ _map: ad, label: "Ad", color: this.palette.ad });
+            datasets.push({ _map: ad, label: this.config.adChartLabel, color: this.palette.ad });
         }
 
         var labels = this.collectLabels(maps);
