@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MMM-AppMetrics Preview</title>
+    <link rel="stylesheet" href="MMM-AppMetrics.css">
+    <style>
+        body {
+            background: #000;
+            margin: 0;
+            padding: 40px 20px;
+            font-family: "Roboto Condensed", Arial, sans-serif;
+        }
+
+        .preview-title {
+            color: #fff;
+            text-align: center;
+            margin: 0 0 24px;
+            font-size: 1.25rem;
+            letter-spacing: 0.05em;
+        }
+
+        .preview-stage {
+            display: flex;
+            justify-content: center;
+        }
+    </style>
+
+    <!-- Bundled charting library, same file the module loads at runtime -->
+    <script src="vendor/chart.umd.min.js"></script>
+
+    <!-- Minimal MagicMirror stubs so MMM-AppMetrics.js runs in a plain browser -->
+    <script>
+        var __module = null;
+        var Module = { register: function(name, obj) { __module = obj; } };
+        var Log = { error: function(){ console.error.apply(console, arguments); },
+                    warn:  function(){ console.warn.apply(console, arguments); } };
+    </script>
+    <script src="MMM-AppMetrics.js"></script>
+</head>
+<body>
+    <h1 class="preview-title">MMM-AppMetrics Preview (mock data)</h1>
+    <div class="preview-stage" id="stage"></div>
+
+    <script>
+        // ---- Build 30 days of plausible mock metrics -----------------------
+        function isoDate(daysAgo) {
+            var d = new Date();
+            d.setDate(d.getDate() - daysAgo);
+            return d.toISOString().slice(0, 10);
+        }
+
+        function dailyCounts(base, jitter) {
+            var out = [];
+            for (var i = 29; i >= 0; i--) {
+                var count = Math.max(0, Math.round(base + (Math.random() - 0.5) * jitter));
+                out.push({ date: isoDate(i), count: count });
+            }
+            return out;
+        }
+
+        function dailyRevenue(base, jitter) {
+            var out = [];
+            for (var i = 29; i >= 0; i--) {
+                var rev = Math.max(0, base + (Math.random() - 0.5) * jitter);
+                out.push({ date: isoDate(i), revenue: rev.toFixed(2), currency: "USD" });
+            }
+            return out;
+        }
+
+        function sum(arr, field) {
+            return arr.reduce(function(s, e) { return s + parseFloat(e[field]); }, 0);
+        }
+
+        var iosDl = dailyCounts(120, 60), andDl = dailyCounts(80, 50);
+        var iosIap = dailyRevenue(45, 30), andIap = dailyRevenue(25, 20);
+        var andAd = dailyRevenue(12, 10);
+
+        var mockData = {
+            range: { start_date: isoDate(29), end_date: isoDate(0) },
+            errors: [],
+            downloads: {
+                platforms: [
+                    { platform: "ios", total_downloads: sum(iosDl, "count"), daily: iosDl },
+                    { platform: "android", total_downloads: sum(andDl, "count"), daily: andDl }
+                ]
+            },
+            iapRevenue: {
+                platforms: [
+                    { platform: "ios", total_revenue: sum(iosIap, "revenue").toFixed(2), currency: "USD", daily: iosIap },
+                    { platform: "android", total_revenue: sum(andIap, "revenue").toFixed(2), currency: "USD", daily: andIap }
+                ]
+            },
+            adRevenue: {
+                platforms: [
+                    { platform: "android", total_revenue: sum(andAd, "revenue").toFixed(2), currency: "USD", daily: andAd }
+                ]
+            }
+        };
+
+        // ---- Drive the real module object ---------------------------------
+        var mod = __module;
+        mod.config = Object.assign({}, mod.defaults);
+        mod.identifier = "preview";
+        mod.charts = {};
+        mod.data_ = mockData;
+        mod.lastUpdate = new Date();
+        mod.loaded = true;
+
+        document.getElementById("stage").appendChild(mod.getDom());
+    </script>
+</body>
+</html>

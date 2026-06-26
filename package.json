@@ -1,0 +1,24 @@
+{
+  "name": "mmm-appmetrics",
+  "version": "1.0.0",
+  "description": "A MagicMirror² module that charts app metrics (downloads, IAP revenue, ad revenue) from the App Metrics API",
+  "main": "MMM-AppMetrics.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "magic mirror",
+    "magicmirror",
+    "module",
+    "smart mirror",
+    "app metrics",
+    "charts"
+  ],
+  "author": "Gordon Myers",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

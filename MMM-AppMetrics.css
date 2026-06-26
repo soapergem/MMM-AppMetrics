@@ -1,0 +1,93 @@
+.mmm-app-widget {
+    font-size: 16px;
+    color: white;
+}
+
+.mmm-app-widget .widget-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+.mmm-app-widget .error-message {
+    color: #e74c3c;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.mmm-app-widget .partial-error {
+    color: #f39c12;
+    font-size: 11px;
+    margin-top: 6px;
+}
+
+/* Summary row of headline totals */
+.mmm-app-widget .summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.mmm-app-widget .summary-item {
+    flex: 1;
+    text-align: center;
+    padding: 6px 4px;
+    background-color: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+}
+
+.mmm-app-widget .summary-value {
+    font-size: 18px;
+    font-weight: bold;
+    line-height: 1.2;
+}
+
+.mmm-app-widget .summary-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 2px;
+}
+
+.mmm-app-widget .metric-downloads .summary-value { color: #3498db; }
+.mmm-app-widget .metric-iap .summary-value { color: #2ecc71; }
+.mmm-app-widget .metric-ad .summary-value { color: #f39c12; }
+
+/* Chart cards */
+.mmm-app-widget .chart-card {
+    position: relative;
+    margin-bottom: 10px;
+}
+
+.mmm-app-widget .chart-card canvas {
+    width: 100% !important;
+}
+
+/* Footer with last-update + refresh, matching the other widgets */
+.mmm-app-widget .widget-footer {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    margin-top: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 5px 0;
+    transition: color 0.2s;
+}
+
+.mmm-app-widget .widget-footer:hover {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.mmm-app-widget .refresh-button {
+    color: inherit;
+}
+
+.mmm-app-widget .widget-footer.refreshing,
+.mmm-app-widget .widget-footer.refreshing:hover {
+    cursor: default;
+    color: rgba(255, 255, 255, 0.5);
+}
