@@ -58,6 +58,7 @@ Add the module to your `config/config.js` file:
 | `showDownloads` | Boolean | `true` | No | Show the downloads total + chart |
 | `showIapRevenue` | Boolean | `true` | No | Include IAP revenue in totals + revenue chart |
 | `showAdRevenue` | Boolean | `true` | No | Include ad revenue in totals + revenue chart |
+| `revenueDualAxis` | Boolean | `true` | No | Scale ad revenue against its own right-hand y axis (see below) |
 | `downloadsChartLabel` | String | `"Downloads"` | No | Downloads label in the chart legend |
 | `iapChartLabel` | String | `"IAP"` | No | IAP revenue label in the chart legend |
 | `adChartLabel` | String | `"Ad"` | No | Ad revenue label in the chart legend |
@@ -81,6 +82,22 @@ queries the enabled endpoints with Basic auth:
 fails the others still render, and the failure is noted under the charts. Per-day
 values are summed across platforms before plotting. The downloads chart and the
 revenue chart (IAP + ad as separate series) are drawn with Chart.js.
+
+### The revenue chart's two y axes
+
+IAP revenue is typically dollars while ad revenue is cents, so on a shared scale
+the ad line flatlines along the bottom. With `revenueDualAxis: true` (the
+default) IAP is measured against the left axis and ad revenue against a
+right-hand axis with its own range, so both lines use the full height of the
+chart. Each axis' tick labels are tinted to match its series — green on the
+left, amber on the right — since that colour is the only thing tying a line to
+its scale.
+
+Two axes means the two lines are on different units: where they cross, or which
+one sits higher, carries no meaning. Only the shape of each line does. Set
+`revenueDualAxis: false` to put both series back on one shared axis, which
+preserves that comparison at the cost of squashing the ad line. The axis is also
+skipped automatically when only one revenue series is on the chart.
 
 ## License
 

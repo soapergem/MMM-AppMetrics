@@ -9,6 +9,9 @@ Module.register("MMM-AppMetrics", {
         showDownloads: true,
         showIapRevenue: true,
         showAdRevenue: true,
+        // Plot ad revenue against its own right-hand axis so cent-scale ad
+        // numbers stay legible next to dollar-scale IAP numbers.
+        revenueDualAxis: true,
         // Chart legend labels (kept short to fit the chart)
         downloadsChartLabel: "Downloads",
         iapChartLabel: "IAP",
@@ -314,6 +317,15 @@ Module.register("MMM-AppMetrics", {
         };
     },
 
+    // Compact currency tick, with enough decimals for whatever scale the
+    // axis ended up on ($120 / $1.4 / $0.03).
+    moneyTick: function(value) {
+        var abs = Math.abs(value);
+        if (abs >= 10 || value === 0) { return "$" + value.toFixed(0); }
+        if (abs >= 1) { return "$" + value.toFixed(1); }
+        return "$" + value.toFixed(2);
+    },
+
     shortLabels: function(dates) {
         return dates.map(function(d) {
             var parts = d.split("-");
@@ -352,18 +364,43 @@ Module.register("MMM-AppMetrics", {
         if (this.config.showIapRevenue && data.iapRevenue) {
             var iap = this.mergeDaily(data.iapRevenue, function(e) { return parseFloat(e.revenue); });
             maps.push(iap);
-            datasets.push({ _map: iap, label: this.config.iapChartLabel, color: this.palette.iap });
+            datasets.push({ _map: iap, label: this.config.iapChartLabel, color: this.palette.iap, axis: "y" });
         }
         if (this.config.showAdRevenue && data.adRevenue) {
             var ad = this.mergeDaily(data.adRevenue, function(e) { return parseFloat(e.revenue); });
             maps.push(ad);
-            datasets.push({ _map: ad, label: this.config.adChartLabel, color: this.palette.ad });
+            datasets.push({ _map: ad, label: this.config.adChartLabel, color: this.palette.ad, axis: "y1" });
         }
 
         var labels = this.collectLabels(maps);
         if (!labels.length) { return null; }
 
+        // A second axis only makes sense when both series are on the chart.
+        var dual = this.config.revenueDualAxis && datasets.length === 2;
+
         var self = this;
+        var options = this.baseChartOptions();
+        options.scales.y.ticks.callback = function(value) { return self.moneyTick(value); };
+
+        if (dual) {
+            // Tint each axis with its series colour: that's what tells the
+            // viewer which line is measured against which scale.
+            options.scales.y.ticks.color = this.palette.iap;
+            options.scales.y1 = {
+                position: "right",
+                beginAtZero: true,
+                // Only the left axis draws gridlines, otherwise the two sets
+                // of lines fight each other in 150px of height.
+                grid: { drawOnChartArea: false, color: this.palette.grid },
+                ticks: {
+                    color: this.palette.ad,
+                    maxTicksLimit: 5,
+                    font: { size: 9 },
+                    callback: function(value) { return self.moneyTick(value); }
+                }
+            };
+        }
+
         return {
             type: "line",
             data: {
@@ -374,6 +411,7 @@ Module.register("MMM-AppMetrics", {
                         data: self.seriesFor(labels, ds._map),
                         borderColor: ds.color,
                         backgroundColor: ds.color,
+                        yAxisID: dual ? ds.axis : "y",
                         tension: 0.3,
                         pointRadius: 0,
                         borderWidth: 2,
@@ -381,7 +419,7 @@ Module.register("MMM-AppMetrics", {
                     };
                 })
             },
-            options: this.baseChartOptions()
+            options: options
         };
     },
 

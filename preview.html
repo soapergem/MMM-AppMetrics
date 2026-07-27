@@ -75,7 +75,9 @@
 
         var iosDl = dailyCounts(120, 60), andDl = dailyCounts(80, 50);
         var iosIap = dailyRevenue(45, 30), andIap = dailyRevenue(25, 20);
-        var andAd = dailyRevenue(12, 10);
+        // Ad revenue arrives in cents-per-day, orders of magnitude below IAP —
+        // this is the scale mismatch the dual y axis exists to handle.
+        var andAd = dailyRevenue(0.05, 0.08);
 
         var mockData = {
             range: { start_date: isoDate(29), end_date: isoDate(0) },
