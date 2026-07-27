@@ -317,13 +317,28 @@ Module.register("MMM-AppMetrics", {
         };
     },
 
-    // Compact currency tick, with enough decimals for whatever scale the
-    // axis ended up on ($120 / $1.4 / $0.03).
-    moneyTick: function(value) {
-        var abs = Math.abs(value);
-        if (abs >= 10 || value === 0) { return "$" + value.toFixed(0); }
-        if (abs >= 1) { return "$" + value.toFixed(1); }
-        return "$" + value.toFixed(2);
+    // Currency tick, formatted for the scale the axis actually landed on. An
+    // axis that tops out below a dollar reads better in cents (0¢ 5¢ 10¢) than
+    // in fractions of a dollar ($0.00 $0.05 $0.10). `ticks` is Chart.js' full
+    // tick list, so the top tick tells us the axis range.
+    moneyTick: function(value, ticks) {
+        var top = (ticks && ticks.length)
+            ? Math.abs(ticks[ticks.length - 1].value)
+            : Math.abs(value);
+
+        if (top > 0 && top < 1) {
+            var cents = value * 100;
+            // Whole cents normally; one decimal if the axis is finer than that.
+            return this.trimNumber(Math.abs(cents) >= 1 ? Math.round(cents) : cents, 1) + "¢";
+        }
+        // Two decimals of precision, but no trailing zeros: $1 not $1.0.
+        return "$" + this.trimNumber(value, 2);
+    },
+
+    // Round to `decimals` and drop trailing zeros ($1.50 -> 1.5, $2.00 -> 2).
+    trimNumber: function(value, decimals) {
+        var factor = Math.pow(10, decimals);
+        return String(Math.round(value * factor) / factor);
     },
 
     shortLabels: function(dates) {
@@ -380,7 +395,9 @@ Module.register("MMM-AppMetrics", {
 
         var self = this;
         var options = this.baseChartOptions();
-        options.scales.y.ticks.callback = function(value) { return self.moneyTick(value); };
+        options.scales.y.ticks.callback = function(value, index, ticks) {
+            return self.moneyTick(value, ticks);
+        };
 
         if (dual) {
             // Tint each axis with its series colour: that's what tells the
@@ -396,7 +413,9 @@ Module.register("MMM-AppMetrics", {
                     color: this.palette.ad,
                     maxTicksLimit: 5,
                     font: { size: 9 },
-                    callback: function(value) { return self.moneyTick(value); }
+                    callback: function(value, index, ticks) {
+                        return self.moneyTick(value, ticks);
+                    }
                 }
             };
         }

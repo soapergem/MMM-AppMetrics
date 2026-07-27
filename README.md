@@ -93,6 +93,11 @@ chart. Each axis' tick labels are tinted to match its series — green on the
 left, amber on the right — since that colour is the only thing tying a line to
 its scale.
 
+Tick labels are formatted for the range each axis lands on: an axis that tops
+out under a dollar is labelled in cents (`0¢ 5¢ 10¢`), anything larger in
+dollars with trailing zeros dropped (`$0 $1 $2 $3`). Nothing is hardcoded per
+axis, so a growing ad-revenue axis switches to dollars on its own.
+
 Two axes means the two lines are on different units: where they cross, or which
 one sits higher, carries no meaning. Only the shape of each line does. Set
 `revenueDualAxis: false` to put both series back on one shared axis, which
