@@ -25,6 +25,16 @@ authentication.
    npm install
    ```
 
+4. Install an emoji font. Raspberry Pi OS does not ship one, and without it the
+   foreign-currency markers on the revenue chart render as empty boxes:
+   ```bash
+   sudo apt-get install -y fonts-noto-color-emoji
+   ```
+   Then restart MagicMirror completely — Electron builds its font list at process
+   start, so a reload won't pick up a newly installed font. Verified on
+   Raspberry Pi OS. See [Foreign-currency markers](#foreign-currency-markers) if
+   you'd rather not depend on a system font.
+
 Chart.js (v4) is bundled in `vendor/` — no build step or internet access is
 needed at runtime.
 
@@ -182,16 +192,45 @@ nativeCurrencySymbols: {
 ```
 
 Currency is not 1:1 with country — the euro spans twenty of them — so these are
-currency symbols rather than flags. That also sidesteps a rendering problem:
-flag emoji are regional-indicator pairs that Windows refuses to draw, showing
+currency symbols rather than flags. That also sidesteps a rendering problem: flag
+emoji are regional-indicator pairs, which Windows refuses to draw at all, showing
 bare letters like `CA` instead. The symbols above are ordinary single-codepoint
-emoji and render everywhere.
+emoji, so any font that covers emoji will draw them — but the host does still
+need such a font, which is not a given on a Pi. See below.
 
 Extend the map with any ISO 4217 code. Codes you don't map fall back to the code
 itself as text (`AUD`), tinted to match the IAP line, so a new currency shows up
 as legible rather than disappearing. A day with purchases in two currencies gets
 both symbols. Days whose purchases were natively in USD are skipped — the API
 does report those, and marking them would say nothing.
+
+**These markers need an emoji font on the host** (step 4 of
+[Installation](#installation)). Raspberry Pi OS does not ship one, and without it
+the symbols render as empty boxes. Install it once per Pi:
+
+```bash
+fc-list | grep -i emoji                            # expect no output
+sudo apt-get install -y fonts-noto-color-emoji
+fc-list | grep -i emoji                            # NotoColorEmoji.ttf: Noto Color Emoji:...
+```
+
+Then restart MagicMirror completely — Electron builds its font list at process
+start, so a reload won't pick up a newly installed font. If the second `fc-list`
+comes back empty after installing, run `fc-cache -f` and re-check.
+
+The module asks for `"Noto Color Emoji"` first in its font stack, which is the
+family name that package registers, so nothing needs configuring once it's there.
+
+If you'd rather not depend on a system font at all, set the map to plain currency
+glyphs instead. `€`, `£` and `¥` are in DejaVu Sans, which is always present, and
+`C$` / `A$` cover the dollar currencies:
+
+```javascript
+nativeCurrencySymbols: { CAD: "C$", AUD: "A$", EUR: "€", GBP: "£", JPY: "¥" }
+```
+
+That needs no code change — the marker plugin draws whatever string the map
+holds.
 
 Drawing is a small inline Chart.js plugin (`nativeMarkerPlugin`) on the
 `afterDatasetsDraw` hook, which is where the resolved pixel position of each
