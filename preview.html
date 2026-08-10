@@ -45,10 +45,13 @@
 
     <script>
         // ---- Build 30 days of plausible mock metrics -----------------------
+        // Local time, matching node_helper's dateRange -- toISOString() would
+        // render the UTC date and shift every label a day forward in the evening.
         function isoDate(daysAgo) {
             var d = new Date();
             d.setDate(d.getDate() - daysAgo);
-            return d.toISOString().slice(0, 10);
+            var pad = function(n) { return String(n).padStart(2, "0"); };
+            return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
         }
 
         function dailyCounts(base, jitter) {
@@ -64,9 +67,15 @@
             var out = [];
             for (var i = 29; i >= 0; i--) {
                 var rev = Math.max(0, base + (Math.random() - 0.5) * jitter);
-                out.push({ date: isoDate(i), revenue: rev.toFixed(2), currency: "USD" });
+                out.push({ date: isoDate(i), revenue: rev.toFixed(2), currency: "USD", native: [] });
             }
             return out;
+        }
+
+        // Record a purchase as having been made in a foreign currency, the way
+        // the API's `native` array does. `daysAgo` counts back from today.
+        function stampNative(daily, daysAgo, natives) {
+            daily[daily.length - 1 - daysAgo].native = natives;
         }
 
         function sum(arr, field) {
@@ -75,6 +84,17 @@
 
         var iosDl = dailyCounts(120, 60), andDl = dailyCounts(80, 50);
         var iosIap = dailyRevenue(1.1, 1.6), andIap = dailyRevenue(0.6, 1.0);
+
+        // A handful of foreign-currency purchases, to exercise the markers:
+        // two mapped currencies, one unmapped (AUD falls back to its code), one
+        // day carrying two currencies at once, and one on the last day to check
+        // the marker doesn't spill past the right-hand axis.
+        stampNative(iosIap, 3, [{ currency: "CAD", amount: "2.79" }]);
+        stampNative(iosIap, 11, [{ currency: "EUR", amount: "1.74" }]);
+        stampNative(iosIap, 18, [{ currency: "AUD", amount: "3.10" }]);
+        stampNative(iosIap, 24, [{ currency: "CAD", amount: "1.40" },
+                                 { currency: "GBP", amount: "0.80" }]);
+        stampNative(andIap, 0, [{ currency: "JPY", amount: "150" }]);
         // Ad revenue arrives in cents-per-day, orders of magnitude below IAP —
         // this is the scale mismatch the dual y axis exists to handle.
         var andAd = dailyRevenue(0.05, 0.08);

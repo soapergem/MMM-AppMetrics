@@ -39,8 +39,19 @@ module.exports = NodeHelper.create({
     },
 
     // Compute the inclusive date window [start, end] as YYYY-MM-DD strings.
+    //
+    // Formatted in local time, deliberately. toISOString() renders the UTC
+    // date, which anywhere west of Greenwich is already tomorrow late in the
+    // evening — 19:00 in US Central, 18:00 once it drops back to standard time.
+    // The window is built from a local `new Date()`, so formatting it as UTC
+    // slid the whole range a day forward: the API accepts the future date
+    // without complaint and zero-fills it, so the chart grew a phantom empty
+    // day on the right and silently dropped the oldest real one.
     dateRange: function() {
-        const fmt = (d) => d.toISOString().slice(0, 10);
+        const fmt = (d) => {
+            const pad = (n) => String(n).padStart(2, "0");
+            return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+        };
         const end = new Date();
         const start = new Date();
         start.setDate(start.getDate() - (this.config.days - 1));

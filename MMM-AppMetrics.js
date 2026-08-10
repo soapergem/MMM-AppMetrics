@@ -12,6 +12,25 @@ Module.register("MMM-AppMetrics", {
         // Plot ad revenue against its own right-hand axis so cent-scale ad
         // numbers stay legible next to dollar-scale IAP numbers.
         revenueDualAxis: true,
+        // Mark IAP days whose purchase was made in a foreign currency. The
+        // chart plots the converted USD figure; the marker records that the
+        // money didn't arrive in dollars.
+        showNativeCurrencyMarkers: true,
+        // Symbol drawn above such a day, keyed by ISO currency code. Currency
+        // is not 1:1 with country (the euro spans twenty of them), so these are
+        // currency symbols rather than flags. Unmapped codes fall back to the
+        // code itself, e.g. "AUD".
+        nativeCurrencySymbols: {
+            AUD: "🦘",
+            CAD: "🍁",
+            EUR: "💶",
+            GBP: "💷",
+            JPY: "💴"
+        },
+        nativeMarkerFontSize: 12,
+        // Repeat the downloads y-axis ticks down the right-hand edge, so a
+        // value over there can be read without tracking back across the chart.
+        downloadsMirroredAxis: true,
         // Chart legend labels (kept short to fit the chart)
         downloadsChartLabel: "Downloads",
         iapChartLabel: "IAP",
@@ -87,6 +106,44 @@ Module.register("MMM-AppMetrics", {
             });
         });
         return byDate;
+    },
+
+    // Collect the currencies a day's purchases were actually made in, keyed by
+    // date and merged across platforms. The API reports these in each daily
+    // entry's `native` array alongside the converted figure, and a single day
+    // can carry more than one. The display currency is skipped: a USD purchase
+    // shown in USD is not worth marking.
+    mergeNativeCurrencies: function(metric) {
+        var byDate = {};
+        if (!metric || !Array.isArray(metric.platforms)) {
+            return byDate;
+        }
+        metric.platforms.forEach(function(platform) {
+            (platform.daily || []).forEach(function(entry) {
+                var display = entry.currency || platform.currency || "USD";
+                (entry.native || []).forEach(function(native) {
+                    if (!native.currency || native.currency === display) { return; }
+                    var seen = byDate[entry.date] || (byDate[entry.date] = []);
+                    if (seen.indexOf(native.currency) === -1) {
+                        seen.push(native.currency);
+                    }
+                });
+            });
+        });
+        return byDate;
+    },
+
+    // One marker string per chart label, or null for days that need no marker.
+    // Days with several native currencies get their symbols concatenated.
+    nativeMarkersFor: function(labels, byDate) {
+        var symbols = this.config.nativeCurrencySymbols || {};
+        return labels.map(function(date) {
+            var currencies = byDate[date];
+            if (!currencies || !currencies.length) { return null; }
+            return currencies.map(function(code) {
+                return symbols[code] || code;
+            }).join("");
+        });
     },
 
     // Ordered union of dates across the metrics we have.
@@ -322,17 +379,25 @@ Module.register("MMM-AppMetrics", {
     // in fractions of a dollar ($0.00 $0.05 $0.10). `ticks` is Chart.js' full
     // tick list, so the top tick tells us the axis range.
     moneyTick: function(value, ticks) {
-        var top = (ticks && ticks.length)
-            ? Math.abs(ticks[ticks.length - 1].value)
-            : Math.abs(value);
+        var list = (ticks && ticks.length) ? ticks : [{ value: value }];
+        var top = Math.abs(list[list.length - 1].value);
 
         if (top > 0 && top < 1) {
             var cents = value * 100;
             // Whole cents normally; one decimal if the axis is finer than that.
             return this.trimNumber(Math.abs(cents) >= 1 ? Math.round(cents) : cents, 1) + "¢";
         }
-        // Two decimals of precision, but no trailing zeros: $1 not $1.0.
-        return "$" + this.trimNumber(value, 2);
+
+        // Dollars. A part-dollar amount has to show both decimal places --
+        // "$1.5" isn't a way of writing money -- and an axis mixing "$1" with
+        // "$1.50" reads as though the labels were rounded inconsistently. So
+        // the decision is per axis, not per tick: if any tick lands on a part
+        // dollar, every tick shows cents ($1.00 $1.50 $2.00); if they are all
+        // whole dollars, none of them do ($0 $1 $2 $3).
+        var fractional = list.some(function(tick) {
+            return Math.round(tick.value * 100) % 100 !== 0;
+        });
+        return "$" + (fractional ? value.toFixed(2) : this.trimNumber(value, 2));
     },
 
     // Round to `decimals` and drop trailing zeros ($1.50 -> 1.5, $2.00 -> 2).
@@ -348,10 +413,97 @@ Module.register("MMM-AppMetrics", {
         });
     },
 
+    // Inline Chart.js plugin that stamps each native-currency symbol above its
+    // data point. `afterDatasetsDraw` runs once the lines are painted and hands
+    // us the resolved pixel position of every point, which is the only place
+    // those coordinates exist — they depend on the scale Chart.js settled on.
+    nativeMarkerPlugin: function(datasetIndex, markers) {
+        var size = this.config.nativeMarkerFontSize || 12;
+        // Only reached by the currency-code fallback; emoji carry their own
+        // colour. Tinting it like the series ties the code to the right line.
+        var color = this.palette.iap;
+
+        return {
+            id: "nativeCurrencyMarkers",
+            afterDatasetsDraw: function(chart) {
+                var meta = chart.getDatasetMeta(datasetIndex);
+                // Legend clicks hide a dataset without removing it; its markers
+                // should go with it.
+                if (!meta || meta.hidden || !meta.data) { return; }
+
+                var ctx = chart.ctx;
+                var area = chart.chartArea;
+                var margin = size * 0.75;
+
+                ctx.save();
+                // Emoji live in a dedicated font on every platform, so name the
+                // usual suspects before falling through to sans-serif for the
+                // currency-code fallback.
+                ctx.font = size + 'px "Noto Color Emoji", "Apple Color Emoji", ' +
+                    '"Segoe UI Emoji", sans-serif';
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillStyle = color;
+
+                markers.forEach(function(marker, index) {
+                    var point = meta.data[index];
+                    if (!marker || !point) { return; }
+                    // Centred text on the first or last day would hang over the
+                    // axis labels; nudge those inside the plot instead.
+                    var x = Math.min(
+                        Math.max(point.x, area.left + margin),
+                        area.right - margin
+                    );
+                    // The headroom added below normally leaves room above the
+                    // point. Clamp anyway so a marker can never escape upward.
+                    var y = Math.max(point.y - 4, area.top + size);
+                    ctx.fillText(marker, x, y);
+                });
+
+                ctx.restore();
+            }
+        };
+    },
+
     downloadsChartConfig: function(data) {
         var byDate = this.mergeDaily(data.downloads, function(e) { return e.count; });
         var labels = this.collectLabels([byDate]);
         if (!labels.length) { return null; }
+
+        var series = this.seriesFor(labels, byDate);
+        var options = this.baseChartOptions();
+
+        if (this.config.downloadsMirroredAxis) {
+            // A second axis with no dataset of its own — it exists only to
+            // repeat the left axis' ticks on the right. No dataset means no
+            // data limits, and Chart.js falls back to an arbitrary 0..1 range,
+            // so hand it the limits the left axis sees: same range through the
+            // same tick algorithm lands on the same ticks.
+            var max = Math.max.apply(null, series);
+            // A series of all zeros collapses the range to 0..0, which yields a
+            // duplicated tick. Chart.js widens that to 0..1 for the left axis
+            // before `afterDataLimits` can see it, so do the same here.
+            if (max <= 0) { max = 1; }
+            options.scales.yRight = {
+                axis: "y",
+                position: "right",
+                beginAtZero: true,
+                // The left axis already draws the gridlines. Letting this one
+                // draw them too would stack two translucent strokes on the same
+                // pixels, leaving this grid brighter than the revenue chart's.
+                grid: { drawOnChartArea: false, color: this.palette.grid },
+                ticks: {
+                    color: this.palette.text,
+                    maxTicksLimit: 5,
+                    font: { size: 9 }
+                },
+                afterDataLimits: function(scale) {
+                    // Downloads are counts, so never negative.
+                    scale.min = 0;
+                    scale.max = max;
+                }
+            };
+        }
 
         return {
             type: "line",
@@ -359,7 +511,7 @@ Module.register("MMM-AppMetrics", {
                 labels: this.shortLabels(labels),
                 datasets: [{
                     label: this.config.downloadsChartLabel,
-                    data: this.seriesFor(labels, byDate),
+                    data: series,
                     borderColor: this.palette.downloads,
                     backgroundColor: this.palette.downloads,
                     tension: 0.3,
@@ -368,22 +520,28 @@ Module.register("MMM-AppMetrics", {
                     fill: false
                 }]
             },
-            options: this.baseChartOptions()
+            options: options
         };
     },
 
     revenueChartConfig: function(data) {
         var maps = [];
         var datasets = [];
+        var iapIndex = -1;
+        var adIndex = -1;
+        var nativeByDate = {};
 
         if (this.config.showIapRevenue && data.iapRevenue) {
             var iap = this.mergeDaily(data.iapRevenue, function(e) { return parseFloat(e.revenue); });
             maps.push(iap);
+            iapIndex = datasets.length;
             datasets.push({ _map: iap, label: this.config.iapChartLabel, color: this.palette.iap, axis: "y" });
+            nativeByDate = this.mergeNativeCurrencies(data.iapRevenue);
         }
         if (this.config.showAdRevenue && data.adRevenue) {
             var ad = this.mergeDaily(data.adRevenue, function(e) { return parseFloat(e.revenue); });
             maps.push(ad);
+            adIndex = datasets.length;
             datasets.push({ _map: ad, label: this.config.adChartLabel, color: this.palette.ad, axis: "y1" });
         }
 
@@ -420,8 +578,67 @@ Module.register("MMM-AppMetrics", {
             };
         }
 
+        // Markers ride above the IAP line, which on a peak day sits flush
+        // against the top of the plot. Lift the axis ceiling to open up room —
+        // but only when there is actually something to draw, so an all-USD
+        // range keeps the tick scale it has today.
+        var plugins = [];
+        var headroom = 1;
+        if (iapIndex >= 0 && this.config.showNativeCurrencyMarkers) {
+            var markers = this.nativeMarkersFor(labels, nativeByDate);
+            if (markers.some(function(m) { return !!m; })) {
+                plugins.push(this.nativeMarkerPlugin(iapIndex, markers));
+                headroom = 1.2;
+            }
+        }
+        if (headroom !== 1) {
+            // IAP is on the left axis in both single- and dual-axis mode.
+            options.scales.y.afterDataLimits = function(scale) {
+                scale.max = scale.max * headroom || 1;
+            };
+        }
+
+        // An empty series has nothing to scale against, so Chart.js falls back
+        // to an arbitrary 0..1 range. What that axis should show instead depends
+        // on whether the other series has anything to borrow from.
+        var series = datasets.map(function(ds) {
+            return self.seriesFor(labels, ds._map);
+        });
+        var hasValues = series.map(function(s) {
+            return s.some(function(v) { return v > 0; });
+        });
+        var setLimits = function(axisId, max) {
+            options.scales[axisId].afterDataLimits = function(scale) {
+                // Every revenue axis is beginAtZero and revenue is never negative.
+                scale.min = 0;
+                scale.max = max;
+            };
+        };
+
+        if (!hasValues.some(Boolean)) {
+            // Nothing at all this period. Chart.js' 0..1 fallback reads as a
+            // dollar scale, which overstates what this chart measures — revenue
+            // here lives in cents. Default to a 60-cent axis so an empty chart
+            // reads 0¢ 20¢ 40¢ 60¢ instead of $0.00 $0.50 $1.00.
+            var emptyAxes = dual ? ["y", "y1"] : ["y"];
+            emptyAxes.forEach(function(axisId) { setLimits(axisId, 0.6); });
+        } else if (dual && hasValues[iapIndex] !== hasValues[adIndex]) {
+            // One side empty, the other populated: without this the empty axis'
+            // ticks would be unrelated to the other's — two sets of gridlines at
+            // different heights, one of them meaningless. Give the empty axis the
+            // same data limits as the series that does have values, so both run
+            // the same tick algorithm over the same range and agree exactly.
+            var emptyIsIap = !hasValues[iapIndex];
+            var max = Math.max.apply(null, series[emptyIsIap ? adIndex : iapIndex]);
+            // Match whatever the populated axis ends up showing, including the
+            // marker headroom if it was applied to the IAP axis.
+            if (!emptyIsIap) { max = max * headroom; }
+            setLimits(emptyIsIap ? "y" : "y1", max);
+        }
+
         return {
             type: "line",
+            plugins: plugins,
             data: {
                 labels: this.shortLabels(labels),
                 datasets: datasets.map(function(ds) {
