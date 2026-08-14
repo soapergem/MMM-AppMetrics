@@ -6,6 +6,10 @@ Module.register("MMM-AppMetrics", {
         platform: "",             // "", "ios" or "android"
         days: 30,                 // lookback window (inclusive)
         updateInterval: 3600000,  // 1 hour in milliseconds
+        requestTimeout: 30000,    // per-request timeout in milliseconds
+        // First retry delay after a round that lost a metric. Doubles per
+        // consecutive bad round, capped at updateInterval.
+        retryBackoff: 60000,      // 1 minute in milliseconds
         showDownloads: true,
         showIapRevenue: true,
         showAdRevenue: true,
@@ -55,8 +59,17 @@ Module.register("MMM-AppMetrics", {
         text: "rgba(255, 255, 255, 0.7)"
     },
 
+    // The metric keys the helper can deliver, in display order.
+    metricKeys: ["downloads", "iapRevenue", "adRevenue"],
+
     start: function() {
-        this.data_ = null;
+        // Each metric is held separately, with the time it was fetched, so a
+        // poll that loses one of them keeps displaying the last good copy of
+        // the others — and of that one. A single upstream having a bad minute
+        // used to blank its number until the next poll an hour later.
+        this.metrics = {};
+        this.range = null;
+        this.errors = [];
         this.loaded = false;
         this.error = null;
         this.lastUpdate = null;
@@ -74,20 +87,71 @@ Module.register("MMM-AppMetrics", {
     },
 
     socketNotificationReceived: function(notification, payload) {
+        var self = this;
         if (notification === "APP_DATA") {
+            var now = new Date();
+            // Only overwrite what actually arrived. A metric missing from the
+            // payload failed this round; its previous value stays put, and
+            // its timestamp stays behind lastUpdate, which is what marks it
+            // stale on screen.
+            this.metricKeys.forEach(function(key) {
+                if (payload[key]) {
+                    self.metrics[key] = { body: payload[key], at: now };
+                }
+            });
+            this.range = payload.range || this.range;
+            this.errors = payload.errors || [];
             this.error = null;
             this.isRefreshing = false;
-            this.data_ = payload;
-            this.lastUpdate = new Date();
+            this.lastUpdate = now;
             this.loaded = true;
             this.updateDom();
         } else if (notification === "ERROR") {
             Log.error("MMM-AppMetrics: " + payload);
+            // Every metric failed. Anything already on screen is still the
+            // best information available, so keep rendering it and report
+            // the failure alongside rather than replacing the display.
             this.error = payload;
             this.isRefreshing = false;
             this.loaded = true;
             this.updateDom();
         }
+    },
+
+    // Metrics held from any poll, shaped like the helper's payload so the
+    // rendering path does not care whether a value is fresh or retained.
+    currentData: function() {
+        var self = this;
+        var data = {};
+        this.metricKeys.forEach(function(key) {
+            if (self.metrics[key]) { data[key] = self.metrics[key].body; }
+        });
+        return data;
+    },
+
+    // Metrics whose newest copy predates the last completed poll.
+    staleMetrics: function() {
+        var self = this;
+        return this.metricKeys.filter(function(key) {
+            var held = self.metrics[key];
+            return held && self.lastUpdate && held.at < self.lastUpdate;
+        });
+    },
+
+    // Coarse age, sized to a display that is read from across the room.
+    formatAge: function(then) {
+        var minutes = Math.round((Date.now() - then.getTime()) / 60000);
+        if (minutes < 2) { return "just now"; }
+        if (minutes < 60) { return minutes + "m ago"; }
+        var hours = Math.round(minutes / 60);
+        if (hours < 24) { return hours + "h ago"; }
+        return Math.round(hours / 24) + "d ago";
+    },
+
+    summaryLabelFor: function(key) {
+        if (key === "downloads") { return this.config.downloadsSummaryLabel; }
+        if (key === "iapRevenue") { return this.config.iapSummaryLabel; }
+        return this.config.adSummaryLabel;
     },
 
     // ---- Data shaping helpers -------------------------------------------
@@ -161,6 +225,18 @@ Module.register("MMM-AppMetrics", {
         });
     },
 
+    // As seriesFor, but absent dates become null rather than zero, which
+    // Chart.js draws as a break in the line. Identical to seriesFor while
+    // every series covers the same range — which is the case unless one of
+    // them is being held over from an earlier poll and its window has since
+    // rolled forward. Plotting that day as 0 would claim there was no
+    // revenue, when the truth is that this series does not reach that far.
+    seriesGapped: function(labels, map) {
+        return labels.map(function(date) {
+            return map.hasOwnProperty(date) ? map[date] : null;
+        });
+    },
+
     formatMoney: function(amount, currency) {
         try {
             return new Intl.NumberFormat("en-US", {
@@ -210,7 +286,15 @@ Module.register("MMM-AppMetrics", {
             return wrapper;
         }
 
-        if (this.error) {
+        var data = this.currentData();
+        var haveAnything = this.metricKeys.some(function(key) {
+            return !!data[key];
+        });
+
+        // Only surrender the whole display when there is nothing to show. If
+        // a previous poll left numbers on screen they are still the best
+        // available, so the error joins them instead of replacing them.
+        if (this.error && !haveAnything) {
             var errorMessage = document.createElement("div");
             errorMessage.className = "error-message";
             errorMessage.innerHTML = "Error loading metrics: " + this.error;
@@ -219,8 +303,6 @@ Module.register("MMM-AppMetrics", {
             wrapper.appendChild(this.buildFooter());
             return wrapper;
         }
-
-        var data = this.data_ || {};
 
         if (this.config.title) {
             var heading = document.createElement("div");
@@ -242,10 +324,27 @@ Module.register("MMM-AppMetrics", {
             wrapper.appendChild(this.buildChartCard("revenue", "Revenue", data));
         }
 
-        if (data.errors && data.errors.length) {
+        // Say plainly that a number is being held over, and how old it is.
+        // Without this the widget would quietly present last hour's revenue
+        // as though it were this hour's.
+        var stale = this.staleMetrics();
+        if (stale.length) {
+            var self_ = this;
+            var notice = document.createElement("div");
+            notice.className = "stale-notice";
+            notice.innerHTML = "Held over: " + stale.map(function(key) {
+                return self_.summaryLabelFor(key) + " (" +
+                    self_.formatAge(self_.metrics[key].at) + ")";
+            }).join(", ");
+            wrapper.appendChild(notice);
+        }
+
+        var reasons = (this.errors || []).slice();
+        if (this.error) { reasons.push(this.error); }
+        if (reasons.length) {
             var partial = document.createElement("div");
             partial.className = "partial-error";
-            partial.innerHTML = "Some metrics unavailable: " + data.errors.join("; ");
+            partial.innerHTML = "Some metrics unavailable: " + reasons.join("; ");
             wrapper.appendChild(partial);
         }
 
@@ -265,6 +364,7 @@ Module.register("MMM-AppMetrics", {
         var items = [];
         if (this.config.showDownloads && data.downloads) {
             items.push({
+                key: "downloads",
                 label: this.config.downloadsSummaryLabel,
                 value: this.downloadsTotal(data.downloads).toLocaleString("en-US"),
                 cls: "metric-downloads"
@@ -272,6 +372,7 @@ Module.register("MMM-AppMetrics", {
         }
         if (this.config.showIapRevenue && data.iapRevenue) {
             items.push({
+                key: "iapRevenue",
                 label: this.config.iapSummaryLabel,
                 value: this.formatMoney(this.revenueTotal(data.iapRevenue), this.revenueCurrency(data.iapRevenue)),
                 cls: "metric-iap"
@@ -279,6 +380,7 @@ Module.register("MMM-AppMetrics", {
         }
         if (this.config.showAdRevenue && data.adRevenue) {
             items.push({
+                key: "adRevenue",
                 label: this.config.adSummaryLabel,
                 value: this.formatMoney(this.revenueTotal(data.adRevenue), this.revenueCurrency(data.adRevenue)),
                 cls: "metric-ad"
@@ -286,9 +388,14 @@ Module.register("MMM-AppMetrics", {
         }
 
         var self = this;
+        var stale = this.staleMetrics();
         items.forEach(function(item) {
             var cell = document.createElement("div");
             cell.className = "summary-item " + item.cls;
+            // Dim a held-over figure so the eye does not read it as current.
+            if (stale.indexOf(item.key) !== -1) {
+                cell.className += " stale";
+            }
 
             var value = document.createElement("div");
             value.className = "summary-value";
@@ -644,7 +751,7 @@ Module.register("MMM-AppMetrics", {
                 datasets: datasets.map(function(ds) {
                     return {
                         label: ds.label,
-                        data: self.seriesFor(labels, ds._map),
+                        data: self.seriesGapped(labels, ds._map),
                         borderColor: ds.color,
                         backgroundColor: ds.color,
                         yAxisID: dual ? ds.axis : "y",

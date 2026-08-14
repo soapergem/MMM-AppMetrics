@@ -21,6 +21,18 @@
     margin-top: 6px;
 }
 
+/* A figure retained from an earlier poll because the latest one lost it */
+.mmm-app-widget .stale-notice {
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 11px;
+    font-style: italic;
+    margin-top: 6px;
+}
+
+.mmm-app-widget .summary-item.stale {
+    opacity: 0.55;
+}
+
 /* Summary row of headline totals */
 .mmm-app-widget .summary {
     display: flex;

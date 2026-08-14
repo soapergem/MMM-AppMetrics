@@ -7,8 +7,9 @@ module.exports = NodeHelper.create({
         console.log("Starting node helper for: " + this.name);
         this.config = null;
         this.updateTimer = null;
+        // Consecutive rounds in which at least one metric failed. Drives the
+        // retry delay; reset only by a round where everything came back.
         this.consecutiveErrors = 0;
-        this.maxConsecutiveErrors = 5;
     },
 
     socketNotificationReceived: function(notification, payload) {
@@ -23,7 +24,8 @@ module.exports = NodeHelper.create({
 
     startPolling: function() {
         if (this.updateTimer) {
-            clearInterval(this.updateTimer);
+            clearTimeout(this.updateTimer);
+            this.updateTimer = null;
         }
 
         if (!this.config.baseURL || !this.config.basicAuth) {
@@ -31,11 +33,48 @@ module.exports = NodeHelper.create({
             return;
         }
 
+        // Each round schedules the next one itself, so the interval can vary
+        // with how the last one went.
         this.consecutiveErrors = 0;
         this.fetchData();
-        this.updateTimer = setInterval(() => {
+    },
+
+    // How long to wait before the next round.
+    //
+    // A failed round retries *sooner* than the normal interval, not later:
+    // something is on screen going stale, so the quicker a retry lands the
+    // less time the display spends wrong. The delay doubles from retryBackoff
+    // and is capped at updateInterval, so a persistent outage settles back
+    // into the ordinary cadence rather than hammering the API.
+    //
+    // Both values are floored, because this paces the loop that talks to the
+    // API and a zero or missing delay would turn it into a hot retry loop.
+    nextDelay: function() {
+        const interval = Math.max(this.config.updateInterval || 3600000, 1000);
+        if (this.consecutiveErrors < 1) {
+            return interval;
+        }
+        const backoff = Math.max(this.config.retryBackoff || 60000, 1000);
+        return Math.min(
+            backoff * Math.pow(2, this.consecutiveErrors - 1),
+            interval
+        );
+    },
+
+    // Queue the next round, replacing any already pending, and report the
+    // delay chosen. Polling never stops: this module used to give up
+    // permanently after five consecutive failures, which froze the display
+    // until MagicMirror was restarted — the one state a wall display cannot
+    // recover from on its own.
+    scheduleNext: function() {
+        if (this.updateTimer) {
+            clearTimeout(this.updateTimer);
+        }
+        const delay = this.nextDelay();
+        this.updateTimer = setTimeout(() => {
             this.fetchData();
-        }, this.config.updateInterval);
+        }, delay);
+        return delay;
     },
 
     // Compute the inclusive date window [start, end] as YYYY-MM-DD strings.
@@ -103,7 +142,12 @@ module.exports = NodeHelper.create({
                 reject(new Error("Request error for " + endpoint + ": " + error.message));
             });
 
-            req.setTimeout(15000, () => {
+            // Must stay above the API's own worst case, or a slow-but-working
+            // upstream is reported here as a timeout while the API is still
+            // waiting on it — which is what used to drop IAP revenue on the
+            // days its currency-conversion provider ran slow. Nothing is
+            // waiting on this interactively; it is a background poll.
+            req.setTimeout(this.config.requestTimeout, () => {
                 req.destroy();
                 reject(new Error("Request timeout for " + endpoint));
             });
@@ -113,14 +157,6 @@ module.exports = NodeHelper.create({
     },
 
     fetchData: function() {
-        // Stop polling if too many consecutive errors
-        if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
-            console.error(this.name + ": Too many consecutive errors (" + this.consecutiveErrors + "), stopping polling");
-            clearInterval(this.updateTimer);
-            this.sendSocketNotification("ERROR", "Too many consecutive errors. Please check your configuration and restart MagicMirror.");
-            return;
-        }
-
         const range = this.dateRange();
         const query = Object.assign({}, range);
         if (this.config.platform) { query.platform = this.config.platform; }
@@ -139,6 +175,7 @@ module.exports = NodeHelper.create({
         }
 
         if (jobs.length === 0) {
+            // Configuration, not connectivity. Retrying cannot change it.
             this.sendSocketNotification("ERROR", "No metrics enabled (showDownloads / showIapRevenue / showAdRevenue are all false)");
             return;
         }
@@ -160,20 +197,32 @@ module.exports = NodeHelper.create({
                 }
             });
 
-            if (!anySuccess) {
-                this.consecutiveErrors++;
+            // Any metric missing is enough to retry early — the module is
+            // holding that one over from an earlier round, and a short retry
+            // is what gets it current again instead of waiting out the hour.
+            const failed = payload.errors.length;
+            this.consecutiveErrors = failed ? this.consecutiveErrors + 1 : 0;
+
+            if (anySuccess) {
+                this.sendSocketNotification("APP_DATA", payload);
+            } else {
                 this.sendSocketNotification("ERROR", payload.errors.join("; "));
-                return;
             }
 
-            this.consecutiveErrors = 0;
-            this.sendSocketNotification("APP_DATA", payload);
+            const delay = this.scheduleNext();
+            if (failed) {
+                console.warn(
+                    this.name + ": " + failed + " metric(s) failed (" +
+                    this.consecutiveErrors + " round(s) in a row); retrying in " +
+                    Math.round(delay / 1000) + "s"
+                );
+            }
         });
     },
 
     stop: function() {
         if (this.updateTimer) {
-            clearInterval(this.updateTimer);
+            clearTimeout(this.updateTimer);
         }
     }
 });

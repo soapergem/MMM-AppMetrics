@@ -65,6 +65,8 @@ Add the module to your `config/config.js` file:
 | `platform` | String | `""` | No | `"ios"`, `"android"`, or `""` for both combined |
 | `days` | Number | `30` | No | Inclusive lookback window ending today |
 | `updateInterval` | Number | `3600000` | No | Poll interval in milliseconds |
+| `requestTimeout` | Number | `30000` | No | Per-request timeout in milliseconds. Keep it above the API's own worst case, or a slow upstream is reported as a timeout here while the API is still working |
+| `retryBackoff` | Number | `60000` | No | Delay before retrying a round that lost a metric, in milliseconds. Doubles per consecutive bad round, capped at `updateInterval` |
 | `showDownloads` | Boolean | `true` | No | Show the downloads total + chart |
 | `showIapRevenue` | Boolean | `true` | No | Include IAP revenue in totals + revenue chart |
 | `showAdRevenue` | Boolean | `true` | No | Include ad revenue in totals + revenue chart |
@@ -97,6 +99,54 @@ Basic auth:
 fails the others still render, and the failure is noted under the charts. Per-day
 values are summed across platforms before plotting. The downloads chart and the
 revenue chart (IAP + ad as separate series) are drawn with Chart.js.
+
+### Metrics are held over when a poll loses them
+
+Each metric is kept separately along with the time it was fetched, and a poll
+only overwrites what it actually returned. A metric that fails is left showing
+its last known value rather than disappearing.
+
+Held-over figures are dimmed and listed under the charts with their age
+(`Held over: IAP Revenue (2h ago)`), alongside whatever the API reported as the
+reason. Nothing on screen is silently out of date: if a number is old, the
+widget says how old.
+
+If the metric's window has since rolled past what the held-over copy covers,
+the missing days are drawn as a break in the line rather than as zero — a gap
+says "not known", a zero would claim there was no revenue that day.
+
+A failure that takes down *every* metric leaves the existing display in place
+too, with the error reported beneath it. The full-screen error state is only
+reached when nothing has ever loaded.
+
+### A failed round retries sooner, not later
+
+Losing a metric shortens the poll interval instead of lengthening it. Something
+is on screen going stale, so the sooner a retry lands the less time the display
+spends wrong. Starting from `retryBackoff`, the delay doubles for each
+consecutive round that lost something, capped at `updateInterval`:
+
+| Consecutive bad rounds | Next poll (defaults) |
+|---|---|
+| 0 (all clean) | 60 min |
+| 1 | 1 min |
+| 2 | 2 min |
+| 3 | 4 min |
+| 4 | 8 min |
+| 5 | 16 min |
+| 6 | 32 min |
+| 7+ | 60 min (capped) |
+
+So a one-off blip — the case that prompted all this — is corrected about a
+minute later rather than an hour later, while a genuine outage decays back to
+the ordinary hourly cadence instead of hammering the API. A single clean round
+resets it.
+
+Only a round in which *every* enabled metric came back resets the counter, so a
+persistently broken endpoint parks the delay at the cap — the loop keeps running
+at the ordinary interval rather than ending. The only conditions that stop it
+are configuration errors retrying cannot fix: a missing `baseURL`/`basicAuth`,
+or all three `show*` options set to false.
 
 ### Dates are local, not UTC
 

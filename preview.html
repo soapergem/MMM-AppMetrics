@@ -24,6 +24,17 @@
         .preview-stage {
             display: flex;
             justify-content: center;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 40px;
+        }
+
+        .preview-panel-label {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 10px;
         }
     </style>
 
@@ -122,15 +133,50 @@
         };
 
         // ---- Drive the real module object ---------------------------------
-        var mod = __module;
-        mod.config = Object.assign({}, mod.defaults);
-        mod.identifier = "preview";
-        mod.charts = {};
-        mod.data_ = mockData;
-        mod.lastUpdate = new Date();
-        mod.loaded = true;
+        // State is fed through the module's own notification handler rather
+        // than assigned directly, so the preview exercises the same merge path
+        // the running widget takes.
+        var seq = 0;
+        function makeModule() {
+            var mod = Object.create(__module);
+            mod.config = Object.assign({}, __module.defaults);
+            mod.identifier = "preview" + (++seq);
+            mod.updateDom = function() {};
+            mod.sendSocketNotification = function() {};
+            mod.start();
+            return mod;
+        }
 
-        document.getElementById("stage").appendChild(mod.getDom());
+        var stage = document.getElementById("stage");
+
+        function addPanel(label, mod) {
+            var panel = document.createElement("div");
+            var caption = document.createElement("div");
+            caption.className = "preview-panel-label";
+            caption.textContent = label;
+            panel.appendChild(caption);
+            panel.appendChild(mod.getDom());
+            stage.appendChild(panel);
+        }
+
+        // Every metric fetched successfully.
+        var fresh = makeModule();
+        fresh.socketNotificationReceived("APP_DATA", mockData);
+        addPanel("All metrics fresh", fresh);
+
+        // The poll lost IAP revenue. Its last known value is held over —
+        // dimmed, and labelled with its age — instead of disappearing until
+        // the next poll an hour later.
+        var held = makeModule();
+        held.socketNotificationReceived("APP_DATA", mockData);
+        held.metrics.iapRevenue.at = new Date(Date.now() - 2 * 3600 * 1000);
+        held.socketNotificationReceived("APP_DATA", {
+            range: mockData.range,
+            errors: ["iapRevenue: Request timeout for /metrics/iap-revenue"],
+            downloads: mockData.downloads,
+            adRevenue: mockData.adRevenue
+        });
+        addPanel("IAP revenue held over", held);
     </script>
 </body>
 </html>
